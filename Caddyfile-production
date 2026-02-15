@@ -1,0 +1,146 @@
+# ========================================================================
+# Phishing Defense Platform - Production Caddyfile
+# Handles HTTPS, reverse proxy, and static file serving
+# ========================================================================
+
+# Main site configuration
+194.233.84.223 {
+    # API endpoints - reverse proxy to Node.js backend
+    handle /api/* {
+        reverse_proxy localhost:5000 {
+            # Health checks
+            health_uri /health
+            health_interval 30s
+            health_timeout 5s
+            
+            # Headers to pass through
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            
+            # Handle CORS preflight
+            @options {
+                method OPTIONS
+            }
+            
+            # Timeouts for long-running detection
+            transport http {
+                dial_timeout 10s
+                response_header_timeout 120s
+                read_buffer_size 4096
+            }
+        }
+    }
+
+    # Screenshot serving
+    handle /screenshots/* {
+        root * /opt/phishing-defense/phishing-data
+        file_server
+    }
+
+    # Frontend - serve React production build
+    handle {
+        root * /opt/phishing-defense/frontend/build
+        try_files {path} /index.html
+        file_server {
+            precompressed gzip
+        }
+    }
+
+    # Security headers
+    header {
+        # Prevent MIME sniffing
+        X-Content-Type-Options "nosniff"
+        
+        # Prevent clickjacking (allow same origin for modals)
+        X-Frame-Options "SAMEORIGIN"
+        
+        # XSS protection
+        X-XSS-Protection "1; mode=block"
+        
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        
+        # Content Security Policy
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'"
+        
+        # Remove server information
+        -Server
+    }
+
+    # Enable compression
+    encode {
+        gzip 6
+        minimum_length 512
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/phishing-defense-access.log {
+            roll_size 100mb
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+        level INFO
+    }
+}
+
+# ========================================================================
+# Domain-based configuration (HTTPS with auto SSL)
+# Uncomment and configure after setting up DNS
+# ========================================================================
+
+# phishing-detector.yourdomain.com {
+#     # Caddy automatically handles HTTPS with Let's Encrypt!
+#     
+#     # API endpoints
+#     handle /api/* {
+#         reverse_proxy localhost:5000 {
+#             header_up Host {host}
+#             header_up X-Real-IP {remote_host}
+#             header_up X-Forwarded-For {remote_host}
+#             header_up X-Forwarded-Proto {scheme}
+#         }
+#     }
+#
+#     # Screenshots
+#     handle /screenshots/* {
+#         root * /opt/phishing-defense/phishing-data
+#         file_server
+#     }
+#
+#     # Frontend
+#     handle {
+#         root * /opt/phishing-defense/frontend/build
+#         try_files {path} /index.html
+#         file_server
+#     }
+#
+#     # Security headers (add HSTS for HTTPS)
+#     header {
+#         X-Content-Type-Options "nosniff"
+#         X-Frame-Options "SAMEORIGIN"
+#         X-XSS-Protection "1; mode=block"
+#         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+#         Referrer-Policy "strict-origin-when-cross-origin"
+#         Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'"
+#         -Server
+#     }
+#
+#     encode gzip
+#
+#     log {
+#         output file /var/log/caddy/phishing-defense-ssl.log
+#         format json
+#     }
+# }
+
+# ========================================================================
+# HTTP to HTTPS redirect (when using domain)
+# ========================================================================
+
+# http://phishing-detector.yourdomain.com {
+#     redir https://{host}{uri} permanent
+# }
